@@ -394,9 +394,9 @@ class MainWindow(QMainWindow):
             f"ThreadPool: {active} active of {max_threads}", 3000)
 
     def _apply_styles(self):
-        # Color palette: #D3D3D3 (LightGray), #A9A9A9 (DarkGray), #C0C0C0 (Silver)
+        # Color palette: #D3D3D3 (LightGray), #ADD8E6 (LightBlue), #C0C0C0 (Silver)
         primary_color = "#D3D3D3"      # LightGray for backgrounds
-        header_color = "#A9A9A9"       # DarkGray for headers
+        header_color = "#ADD8E6"       # LightBlue for headers
         selection_color = "#C0C0C0"    # Silver for selections and borders
         text_color_on_dark = "#FFFFFF"  # White text on dark headers
         text_color_on_light = "#000000"  # Black text on light backgrounds
@@ -406,6 +406,16 @@ class MainWindow(QMainWindow):
             QMainWindow, QToolBar, QStatusBar {{
                 background-color: {primary_color};
                 color: {text_color_on_light};
+            }}
+            QToolBar QToolButton {{
+                background-color: {header_color};
+                color: {text_color_on_light};
+                padding: 5px;
+                border-radius: 3px;
+                margin: 2px;
+            }}
+            QToolBar QToolButton:hover {{
+                background-color: #B0E0E6;
             }}
             QTreeView {{
                 background-color: white;
@@ -429,15 +439,15 @@ class MainWindow(QMainWindow):
             }}
             QHeaderView::section {{
                 background-color: {header_color};
-                color: {text_color_on_dark};
+                color: {text_color_on_light};
                 padding: 6px;
-                border: 1px solid {header_color};
+                border: 1px solid {selection_color};
                 font-weight: bold;
                 font-size: 9pt;
             }}
             QTableView QTableCornerButton::section {{
                 background-color: {header_color};
-                border: 1px solid {header_color};
+                border: 1px solid {selection_color};
             }}
             #resultsHeader QPushButton, #editorHeader QPushButton {{
                 background-color: #ffffff;
