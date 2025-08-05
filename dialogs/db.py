@@ -240,3 +240,51 @@ def initialize_database():
 
         c.execute("CREATE TABLE IF NOT EXISTS query_history (id INTEGER PRIMARY KEY, connection_item_id INTEGER, query_text TEXT, status TEXT, rows_affected INTEGER, execution_time_sec REAL, timestamp TEXT)")
         conn.commit()
+
+def count_table_rows(conn_data, table_name, schema_name=None):
+    """
+    Connects to a database and performs a direct SELECT COUNT(*) on a table.
+
+    Args:
+        conn_data (dict): The dictionary containing connection parameters.
+        table_name (str): The name of the table to count.
+        schema_name (str, optional): The schema name, required for PostgreSQL.
+
+    Returns:
+        tuple: A tuple containing (row_count, error_message).
+               On success, error_message is None.
+               On failure, row_count is -1.
+    """
+    conn = None
+    try:
+        # Determine connection type and establish a new connection
+        if "db_path" in conn_data and conn_data["db_path"]:
+            conn = create_sqlite_connection(conn_data["db_path"])
+            query = f'SELECT COUNT(*) FROM "{table_name}";'
+        else:
+            conn = create_postgres_connection(
+                host=conn_data["host"], database=conn_data["database"],
+                user=conn_data["user"], password=conn_data["password"],
+                port=int(conn_data["port"])
+            )
+            # PostgreSQL requires the schema name for a fully qualified table
+            if not schema_name:
+                raise ValueError("Schema name is required for PostgreSQL.")
+            query = f'SELECT COUNT(*) FROM "{schema_name}"."{table_name}";'
+
+        if not conn:
+            raise ConnectionError("Failed to establish database connection for counting.")
+
+        cursor = conn.cursor()
+        cursor.execute(query)
+        # The result of COUNT(*) is always a single row with a single column, e.g., (12345,)
+        row_count = cursor.fetchone()[0]
+        return row_count, None
+
+    except Exception as e:
+        # Return the error message for display in the UI
+        return -1, str(e)
+    finally:
+        # Ensure the connection is always closed
+        if conn:
+            conn.close()

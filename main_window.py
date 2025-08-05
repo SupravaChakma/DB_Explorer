@@ -146,13 +146,17 @@ class MainWindow(QMainWindow):
 
         self.schema_tree = QTreeView()
         self.schema_model = QStandardItemModel()
-        self.schema_model.setHorizontalHeaderLabels(["Database Schema"])
+        # MODIFIED: Set two columns for the schema view header
+        self.schema_model.setHorizontalHeaderLabels(["Name", "Type"])
         self.schema_tree.setModel(self.schema_model)
         self.schema_tree.setContextMenuPolicy(
             Qt.ContextMenuPolicy.CustomContextMenu)
         self.schema_tree.customContextMenuRequested.connect(
             self.show_schema_context_menu)
         self.left_vertical_splitter.addWidget(self.schema_tree)
+        # MODIFIED: Adjust column widths
+        self.schema_tree.setColumnWidth(0, 160)
+
 
         self.left_vertical_splitter.setSizes([240, 360])
         left_layout.addWidget(self.left_vertical_splitter)
@@ -652,7 +656,8 @@ class MainWindow(QMainWindow):
         item = self.model.itemFromIndex(index)
         depth = self.get_item_depth(item)
         self.schema_model.clear()
-        self.schema_model.setHorizontalHeaderLabels(["Database Schema"])
+        # MODIFIED: Ensure the header is set correctly when an item is clicked
+        self.schema_model.setHorizontalHeaderLabels(["Name", "Type"])
         if depth == 3:
             conn_data = item.data(Qt.ItemDataRole.UserRole)
             if conn_data:
@@ -1065,9 +1070,10 @@ class MainWindow(QMainWindow):
 
 
     # --- Schema Loading Methods ---
+    # MODIFIED: This method now populates two columns (Name and Type).
     def load_sqlite_schema(self, conn_data):
         self.schema_model.clear()
-        self.schema_model.setHorizontalHeaderLabels(["Tables & Views"])
+        self.schema_model.setHorizontalHeaderLabels(["Name", "Type"])
         db_path = conn_data.get("db_path")
         if not db_path or not os.path.exists(db_path):
             self.status.showMessage(f"Error: SQLite DB path not found: {db_path}", 5000)
@@ -1075,36 +1081,55 @@ class MainWindow(QMainWindow):
         try:
             conn = sqlite.connect(db_path)
             cursor = conn.cursor()
-            cursor.execute("SELECT name, type FROM sqlite_master WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite_%' ORDER BY type, name;")
+            cursor.execute("SELECT name, type FROM sqlite_master WHERE type IN ('table', 'view') ORDER BY type, name;")
             tables = cursor.fetchall()
             conn.close()
-            for name, type in tables:
-                icon = QIcon("assets/table_icon.png") if type == 'table' else QIcon("assets/view_icon.png")
-                item = QStandardItem(icon, name)
-                item.setEditable(False)
-                item.setData({'db_type': 'sqlite', 'conn_data': conn_data}, Qt.ItemDataRole.UserRole)
-                self.schema_model.appendRow(item)
+
+            for name, type_str in tables:
+                icon = QIcon("assets/table_icon.png") if type_str == 'table' else QIcon("assets/view_icon.png")
+                
+                # Create item for the first column (Name)
+                name_item = QStandardItem(icon, name)
+                name_item.setEditable(False)
+                name_item.setData({'db_type': 'sqlite', 'conn_data': conn_data}, Qt.ItemDataRole.UserRole)
+                
+                # Create item for the second column (Type)
+                type_item = QStandardItem(type_str.capitalize())
+                type_item.setEditable(False)
+                
+                # Append the row with two items
+                self.schema_model.appendRow([name_item, type_item])
+                
             if hasattr(self, '_expanded_connection'):
                 try: self.schema_tree.expanded.disconnect(self._expanded_connection)
                 except TypeError: pass
         except Exception as e:
             self.status.showMessage(f"Error loading SQLite schema: {e}", 5000)
 
+    # MODIFIED: This method now populates two columns for schemas.
     def load_postgres_schema(self, conn_data):
         try:
             self.schema_model.clear()
-            self.schema_model.setHorizontalHeaderLabels(["Schemas"])
+            self.schema_model.setHorizontalHeaderLabels(["Name", "Type"])
             self.pg_conn = psycopg2.connect(host=conn_data["host"], database=conn_data["database"], user=conn_data["user"], password=conn_data["password"], port=int(conn_data["port"]))
             cursor = self.pg_conn.cursor()
             cursor.execute("SELECT schema_name FROM information_schema.schemata WHERE schema_name NOT IN ('pg_catalog', 'information_schema', 'pg_toast') ORDER BY schema_name;")
             schemas = cursor.fetchall()
             for (schema_name,) in schemas:
-                schema_item = QStandardItem(QIcon("assets/schema_icon.png"), schema_name)
-                schema_item.setEditable(False)
+                # Create item for the first column (Name)
+                schema_name_item = QStandardItem(QIcon("assets/schema_icon.png"), schema_name)
+                schema_name_item.setEditable(False)
                 item_data = {'db_type': 'postgres', 'schema_name': schema_name, 'conn_data': conn_data}
-                schema_item.setData(item_data, Qt.ItemDataRole.UserRole)
-                schema_item.appendRow(QStandardItem("Loading..."))
-                self.schema_model.appendRow(schema_item)
+                schema_name_item.setData(item_data, Qt.ItemDataRole.UserRole)
+                schema_name_item.appendRow(QStandardItem("Loading..."))
+
+                # Create item for the second column (Type)
+                schema_type_item = QStandardItem("Schema")
+                schema_type_item.setEditable(False)
+                
+                # Append the row with two items
+                self.schema_model.appendRow([schema_name_item, schema_type_item])
+
             if hasattr(self, '_expanded_connection'):
                 try: self.schema_tree.expanded.disconnect(self._expanded_connection)
                 except TypeError: pass
@@ -1122,12 +1147,20 @@ class MainWindow(QMainWindow):
 
         item = self.schema_model.itemFromIndex(index)
         item_data = item.data(Qt.ItemDataRole.UserRole)
+        
+        # In a two-column model, the data is on the item in the first column.
+        # If user clicks on the "Type" column, get the corresponding "Name" item.
+        if index.column() > 0:
+            item = self.schema_model.item(index.row(), 0)
+            if not item: return
 
-        is_sqlite_table = item_data and item_data.get('db_type') == 'sqlite'
-        is_postgres_table = item_data and item.parent(
-        ) and item_data.get('db_type') == 'postgres'
+        item_data = item.data(Qt.ItemDataRole.UserRole)
 
-        if not (is_sqlite_table or is_postgres_table):
+        # Check if the item is a table/view (it has a parent if it's PG, or it's sqlite type)
+        is_table_or_view = (item_data and item_data.get('db_type') == 'sqlite') or \
+                           (item.parent() and item_data and item_data.get('db_type') == 'postgres')
+
+        if not is_table_or_view:
             return
 
         table_name = item.text()
@@ -1135,20 +1168,27 @@ class MainWindow(QMainWindow):
 
         view_menu = menu.addMenu("View/Edit Data")
 
-        query_all_action = QAction("Query all rows from Table", self)
+        query_all_action = QAction("all rows", self)
         query_all_action.triggered.connect(
             lambda: self.query_table_rows(item_data, table_name, limit=None, execute_now=True))
         view_menu.addAction(query_all_action)
 
-        preview_100_action = QAction("Preview first 100 rows", self)
+        preview_100_action = QAction("first 100 rows", self)
         preview_100_action.triggered.connect(
             lambda: self.query_table_rows(item_data, table_name, limit=100, execute_now=True))
         view_menu.addAction(preview_100_action)
 
-        last_100_action = QAction("Show last 100 rows", self)
+        last_100_action = QAction("last 100 rows", self)
         last_100_action.triggered.connect(
             lambda: self.query_table_rows(item_data, table_name, limit=100, order='desc', execute_now=True))
         view_menu.addAction(last_100_action)
+
+        menu.addSeparator()
+        count_rows_action = QAction("count query", self)
+        count_rows_action.triggered.connect(
+          lambda: self.handle_count_rows(item_data, table_name))
+        menu.addAction(count_rows_action)
+        menu.addSeparator()
 
         query_tool_action = QAction("Query Tool", self)
         query_tool_action.triggered.connect(
@@ -1156,7 +1196,7 @@ class MainWindow(QMainWindow):
         menu.addAction(query_tool_action)
 
         menu.exec(self.schema_tree.viewport().mapToGlobal(position))
-
+    
     def open_query_tool_for_table(self, item_data, table_name):
         self.query_table_rows(item_data, table_name, execute_now=False)
 
@@ -1188,7 +1228,41 @@ class MainWindow(QMainWindow):
             self.tab_widget.setCurrentWidget(new_tab)
             self.execute_query()
 
+    def handle_count_rows(self, item_data, table_name):
+        """
+        Handles the logic for the 'Count Rows' context menu action.
+        """
+        if not item_data:
+            return
 
+        conn_data = item_data.get('conn_data')
+        # For PostgreSQL, we need the schema name which is stored in the parent item's data
+        schema_name = item_data.get('schema_name')
+
+        # Provide immediate feedback that the operation has started
+        self.status_message_label.setText(f"Counting rows in '{table_name}'...")
+        QApplication.processEvents()  # Force the UI to update
+
+        # Call the new function in db.py
+        row_count, error = db.count_table_rows(conn_data, table_name, schema_name)
+
+        # Reset the status bar message
+        self.status_message_label.setText("Ready")
+
+        if error:
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"Failed to count rows for table '{table_name}'.\n\nError: {error}"
+            )
+        else:
+            # Display the result in a message box, formatted with commas
+            QMessageBox.information(
+                self,
+                "Row Count",
+                f"The table '{table_name}' contains:\n\n{row_count:,}\n\nrows."
+            )
+    # MODIFIED: This method now populates two columns for tables and views.
     def load_tables_on_expand(self, index: QModelIndex):
         item = self.schema_model.itemFromIndex(index)
         if not item or (item.rowCount() > 0 and item.child(0).text() != "Loading..."):
@@ -1200,11 +1274,21 @@ class MainWindow(QMainWindow):
             cursor = self.pg_conn.cursor()
             cursor.execute("SELECT table_name, table_type FROM information_schema.tables WHERE table_schema = %s ORDER BY table_type, table_name;", (schema_name,))
             tables = cursor.fetchall()
-            for (table_name, table_type) in tables:
-                icon_path = "assets/table_icon.png" if "TABLE" in table_type else "assets/view_icon.png"
-                table_item = QStandardItem(QIcon(icon_path), table_name)
-                table_item.setEditable(False)
-                table_item.setData(item_data, Qt.ItemDataRole.UserRole)
-                item.appendRow(table_item)
+            for (table_name, table_type_str) in tables:
+                is_table = "TABLE" in table_type_str
+                icon_path = "assets/table_icon.png" if is_table else "assets/view_icon.png"
+                display_type = "Table" if is_table else "View"
+                
+                # Create item for the first column (Name)
+                table_name_item = QStandardItem(QIcon(icon_path), table_name)
+                table_name_item.setEditable(False)
+                table_name_item.setData(item_data, Qt.ItemDataRole.UserRole)
+                
+                # Create item for the second column (Type)
+                table_type_item = QStandardItem(display_type)
+                table_type_item.setEditable(False)
+                
+                # Append the row with two items to the parent (schema) item
+                item.appendRow([table_name_item, table_type_item])
         except Exception as e:
             self.status.showMessage(f"Error expanding schema: {e}", 5000)
